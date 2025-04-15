@@ -23,7 +23,7 @@ def load_parameters_from_csv(filename="parameter_csv-Parameter.csv"):
         reader = csv.reader(csvfile, delimiter=';')
         rows = list(reader)
     if not rows:
-        raise ValueError("Die CSV-Datei ist leer.")
+        raise ValueError("The CSV file is empty.")
     header = rows[0]
     num_sets = len(header) - 1  # Erste Spalte sind Parameternamen
     chosen_index = random.randint(1, num_sets)
@@ -61,10 +61,10 @@ def load_cube_from_csv():
         reader = csv.reader(csvfile, delimiter=';')
         rows = list(reader)
     if len(rows) < 2:
-        raise ValueError("CSV-Datei muss mindestens zwei Zeilen enthalten.")
+        raise ValueError("CSV file must contain at least two rows.")
     colors = rows[1]
     if len(colors) != 54:
-        raise ValueError(f"Erwartet 54 Farbcodes, gefunden: {len(colors)}")
+        raise ValueError(f"Expected 54 color codes, found: {len(colors)}")
     return colors
 
 def load_mappings(filename="mappings.json"):
@@ -124,7 +124,8 @@ def cube_to_string(cube_state):
 def get_correct_pieces(cube_state, target_pieces):
     """
     Bestimmt anhand des aktuellen Zustands, welche beweglichen Steine (Ecken und Kanten)
-    korrekt positioniert und orientiert sind. target_pieces ist ein Dictionary, z. B.:
+    korrekt positioniert und orientiert sind.
+    target_pieces ist ein Dictionary, z. B.:
        "E1": ((1, 12, 25), ('w', 'r', 'g'))
     """
     return {
@@ -205,7 +206,7 @@ def load_learned_moves(filename):
 # ======================================================================
 def optimize_cube(params, starting_state, moves_mapping, learned_moves):
     """
-    Optimiert den Würfel, indem Zugfolgen (aus Improvements.csv) so angewendet werden, dass die 
+    Optimiert den Würfel, indem Zugfolgen (aus Improvements.csv) so angewendet werden, dass die
     Anzahl korrekt positionierter beweglicher Steine steigt.
     
     Vorgehen:
@@ -214,7 +215,6 @@ def optimize_cube(params, starting_state, moves_mapping, learned_moves):
       - Falls in der aktuellen Kombination keine Verbesserung erzielt wird, wird diese Kombination
         intern gesperrt und der Zustand auf den ursprünglichen Ausgangszustand zurückgesetzt.
     """
-    # Zustandsbewertung auf Basis von Level "E3" (alle 20 Steine)
     level_targets = levels["E3"]
     current_state = starting_state.copy()
     starting_state_saved = starting_state.copy()
@@ -223,9 +223,7 @@ def optimize_cube(params, starting_state, moves_mapping, learned_moves):
     combination_history = set()  # Gesperrte Kombinationen (als Tuple)
     current_combination = []      # Aktuell angewandte Zugfolgen (Liste von Strings)
     
-    # Hier holen wir den Wert für MAX_ITERATIONS aus den Parametern für Level "E3" (als Integer)
     max_iterations = params["MAX_ITERATIONS"]["E3"]
-    
     iteration = 0
     while count_correct_pieces(current_state, level_targets) < TARGET_CORRECT and iteration < max_iterations:
         improvement_found = False
@@ -236,7 +234,6 @@ def optimize_cube(params, starting_state, moves_mapping, learned_moves):
             if candidate_key in combination_history:
                 continue
             
-            # Falls in "Starting Positions" Bedingungen definiert sind, diese prüfen:
             start_positions = candidate.get("Starting Positions", "").strip()
             if start_positions:
                 required_pieces = start_positions.split("-")
@@ -251,20 +248,31 @@ def optimize_cube(params, starting_state, moves_mapping, learned_moves):
                 current_state = candidate_state
                 current_combination.append(candidate_sequence)
                 improvement_found = True
-                if iteration % 100 == 0:
-                    print(f"Iteration {iteration}: Verbesserung erzielt, korrekt: {candidate_count}")
                 break
-        
         if not improvement_found:
             combination_history.add(tuple(current_combination))
-            if iteration % 100 == 0:
-                print(f"Iteration {iteration}: Keine Verbesserung, Kombination zurückgesetzt.")
             current_state = starting_state_saved.copy()
             current_combination = []
         iteration += 1
+        if iteration % 1000 == 0:
+            # Nur alle 1000 Iterationen Ausgabe der Iterationsnummer
+            print(iteration)
     
     solved = (count_correct_pieces(current_state, level_targets) == TARGET_CORRECT)
     return current_state, current_combination, solved, iteration
+
+# ======================================================================
+# Funktion zum Abspeichern der Ergebnisse in "Results.csv"
+# ======================================================================
+def save_results(run_id, start_state_str, runtime_str, solution_found, solution_iterations, solution_move_sequence, total_moves, results_filename="Results.csv"):
+    header = ["Date/Time", "Start State", "Runtime", "Solution Found", "Solution Iterations", "Solution Move Sequence", "Total Moves"]
+    filepath = os.path.join(SCRIPT_DIR, results_filename)
+    file_exists = os.path.exists(filepath)
+    with open(filepath, "a", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile, delimiter=';')
+        if not file_exists:
+            writer.writerow(header)
+        writer.writerow([run_id, start_state_str, runtime_str, solution_found, solution_iterations, solution_move_sequence, total_moves])
 
 # ======================================================================
 # Hauptprogramm
@@ -295,11 +303,13 @@ def main():
     no_moves_to_shuffle = params.get("NO_MOVES_TO_SHUFFLE", 0)
     if no_moves_to_shuffle > 0:
         shuffle_sequence = [random.choice(allowed_moves_global) for _ in range(no_moves_to_shuffle)]
-        original_state = starting_state.copy()
         starting_state = apply_sequence(starting_state, shuffle_sequence, moves_mapping)
         print("Nach dem Mischen:")
         print(cube_to_string(starting_state))
         print("Mischzugfolge:", " ".join(shuffle_sequence))
+    
+    # Speichere die Startposition (nach Shuffling) als Semikolon-getrennte Zeichenkette
+    start_state_str = ";".join(starting_state)
     
     # Gelernte Zugfolgen aus Improvements.csv laden
     improvements_filename = os.path.join(SCRIPT_DIR, "Improvements.csv")
@@ -308,32 +318,44 @@ def main():
         print("Keine gelernten Zugfolgen in", improvements_filename, "gefunden.")
         return
     
+    # Startzeit erfassen
+    start_time = time.time()
+    
     # Optimierungsphase: Anwenden gelernter Zugfolgen
     final_state, combination, solved, iterations = optimize_cube(params, starting_state, moves_mapping, learned_moves)
     
-    print("\nFinaler Würfelzustand:")
-    print(cube_to_string(final_state))
-    print("Iterationen:", iterations)
+    # Laufzeit berechnen und als hh:mm:ss formatieren
+    elapsed = time.time() - start_time
+    runtime_str = time.strftime("%H:%M:%S", time.gmtime(elapsed))
     
-    # Gesamte Zugfolge als Konkatenation aller angewandten Zugfolgen
+    # Gesamte Zugfolge: Verkettung aller angewandten Sequenzen
     total_moves_list = []
     for seq in combination:
         total_moves_list.extend(seq.split())
+    total_move_sequence = " ".join(total_moves_list)
     total_moves = len(total_moves_list)
     
+    # Ergebnis anzeigen
+    print("\nFinaler Würfelzustand:")
+    print(cube_to_string(final_state))
+    print("Iterationen:", iterations)
     if solved:
-        print(f"\nWürfel gelöst! Gesamtanzahl an Zügen: {total_moves}")
+        print(f"\nWürfel gelöst! Total moves: {total_moves}")
     else:
         print("\nWürfel nicht vollständig gelöst.")
     
-    # Ausgabe der einzelnen angewandten Zugfolgen
     print("\nEinzelne angewandte Zugfolgen (in Reihenfolge):")
     for idx, seq in enumerate(combination, start=1):
         print(f"{idx}: {seq}")
     
-    # Ausgabe der gesamten Zugfolge (als verketteter String)
     print("\nGesamte Zugfolge (verkettet):")
-    print(" ".join(total_moves_list))
+    print(total_move_sequence)
+    
+    # Ergebnisse in Results.csv speichern
+    run_id = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time))
+    solution_found = "Yes" if solved else "No"
+    save_results(run_id, start_state_str, runtime_str, solution_found, iterations, total_move_sequence, total_moves)
+    print("\nErgebnisse wurden in Results.csv gespeichert.")
 
 if __name__ == '__main__':
     main()

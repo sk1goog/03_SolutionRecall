@@ -211,8 +211,8 @@ def optimize_cube(params, starting_state, moves_mapping, learned_moves):
     Vorgehen:
       - Vom (eventuell gemischten) Ausgangszustand wird iterativ ein Kandidat gesucht,
         der durch Anwendung einer Zugfolge zu einem Anstieg der korrekt positionierten Steine führt.
-      - Falls keine Verbesserung in der aktuellen Kombination erzielt wird, wird diese Kombination
-        intern gesperrt und der Zustand auf den Ausgangszustand zurückgesetzt.
+      - Falls in der aktuellen Kombination keine Verbesserung erzielt wird, wird diese Kombination
+        intern gesperrt und der Zustand auf den ursprünglichen Ausgangszustand zurückgesetzt.
     """
     # Zustandsbewertung auf Basis von Level "E3" (alle 20 Steine)
     level_targets = levels["E3"]
@@ -231,12 +231,12 @@ def optimize_cube(params, starting_state, moves_mapping, learned_moves):
         improvement_found = False
         random.shuffle(learned_moves)
         for candidate in learned_moves:
-            candidate_sequence = candidate["Move Sequence"]  # Beispielsweise "R Fb"
+            candidate_sequence = candidate["Move Sequence"]  # z. B. "R Fb"
             candidate_key = tuple(current_combination + [candidate_sequence])
             if candidate_key in combination_history:
                 continue
             
-            # Falls "Starting Positions" angegeben sind, prüfen wir, ob die Bedingungen erfüllt sind:
+            # Falls in "Starting Positions" Bedingungen definiert sind, diese prüfen:
             start_positions = candidate.get("Starting Positions", "").strip()
             if start_positions:
                 required_pieces = start_positions.split("-")
@@ -251,12 +251,14 @@ def optimize_cube(params, starting_state, moves_mapping, learned_moves):
                 current_state = candidate_state
                 current_combination.append(candidate_sequence)
                 improvement_found = True
-                print(f"Iteration {iteration}: Zugfolge '{candidate_sequence}' angewendet – korrekt: {candidate_count}")
+                if iteration % 100 == 0:
+                    print(f"Iteration {iteration}: Verbesserung erzielt, korrekt: {candidate_count}")
                 break
         
         if not improvement_found:
             combination_history.add(tuple(current_combination))
-            print(f"Iteration {iteration}: Keine Verbesserung mit Kombination {current_combination}. Zurücksetzen.")
+            if iteration % 100 == 0:
+                print(f"Iteration {iteration}: Keine Verbesserung, Kombination zurückgesetzt.")
             current_state = starting_state_saved.copy()
             current_combination = []
         iteration += 1
@@ -311,12 +313,27 @@ def main():
     
     print("\nFinaler Würfelzustand:")
     print(cube_to_string(final_state))
-    print("Angewandte Zugfolgen:", combination)
     print("Iterationen:", iterations)
+    
+    # Gesamte Zugfolge als Konkatenation aller angewandten Zugfolgen
+    total_moves_list = []
+    for seq in combination:
+        total_moves_list.extend(seq.split())
+    total_moves = len(total_moves_list)
+    
     if solved:
-        print("Würfel gelöst! (20 korrekt positionierte Steine)")
+        print(f"\nWürfel gelöst! Gesamtanzahl an Zügen: {total_moves}")
     else:
-        print("Würfel nicht vollständig gelöst.")
+        print("\nWürfel nicht vollständig gelöst.")
+    
+    # Ausgabe der einzelnen angewandten Zugfolgen
+    print("\nEinzelne angewandte Zugfolgen (in Reihenfolge):")
+    for idx, seq in enumerate(combination, start=1):
+        print(f"{idx}: {seq}")
+    
+    # Ausgabe der gesamten Zugfolge (als verketteter String)
+    print("\nGesamte Zugfolge (verkettet):")
+    print(" ".join(total_moves_list))
 
 if __name__ == '__main__':
     main()
